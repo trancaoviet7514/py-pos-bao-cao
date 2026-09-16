@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PY POS — Báo cáo</title>
+<style>
+  /* Cùng màu xanh với app (seedColor #2E7D32) để chủ quán mở ra là nhận
+     ra ngay đây là cùng một sản phẩm. */
+  :root {
+    --green: #2E7D32;
+    --green-dark: #1B5E20;
+    --bg: #F7FAF3;
+    --surface: #FFFFFF;
+    --line: #DDE5D8;
+    --text: #1A1C19;
+    --muted: #5A6157;
+    --danger: #B3261E;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  /* Bó bề rộng rồi căn giữa, đúng luật B.50 của app: một cột số kéo hết
+     màn hình 1280px thì con số nằm cách nhãn của nó cả gang tay. */
+  .wrap { max-width: 760px; margin: 0 auto; padding: 16px; }
+
+  header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 4px; }
+  h1 { font-size: 20px; margin: 0; }
+  .shop { color: var(--muted); font-size: 14px; }
+
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0; }
+  .chip {
+    padding: 8px 14px; border: 1px solid var(--line); border-radius: 999px;
+    background: var(--surface); color: var(--text); font-size: 14px; cursor: pointer;
+  }
+  .chip[aria-pressed="true"] { background: var(--green); border-color: var(--green); color: #fff; }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+  .card .label { color: var(--muted); font-size: 13px; }
+  .card .value { font-size: 22px; font-weight: 700; margin-top: 2px; }
+  .card.hero .value { font-size: 30px; color: var(--green-dark); }
+
+  section { margin-top: 28px; }
+  h2 { font-size: 16px; margin: 0 0 10px; }
+
+  table { width: 100%; border-collapse: collapse; }
+  td { padding: 9px 0; border-bottom: 1px solid var(--line); }
+  td.num { text-align: right; white-space: nowrap; }
+  td.rank { width: 28px; color: var(--muted); }
+
+  .bars { display: flex; align-items: flex-end; gap: 4px; height: 160px; overflow-x: auto; padding-bottom: 4px; }
+  .bar { flex: 1 0 22px; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; height: 100%; }
+  .bar .fill { width: 100%; background: var(--green); border-radius: 3px 3px 0 0; min-height: 2px; }
+  .bar .amt { font-size: 10px; color: var(--muted); margin-bottom: 3px; white-space: nowrap; }
+  .bar .day { font-size: 10px; color: var(--muted); margin-top: 4px; }
+
+  form { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px; margin-top: 40px; }
+  label { display: block; font-size: 14px; color: var(--muted); margin-bottom: 6px; }
+  input {
+    width: 100%; padding: 11px 12px; font-size: 16px; margin-bottom: 14px;
+    border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text);
+  }
+  button.primary {
+    width: 100%; padding: 12px; font-size: 16px; font-weight: 600;
+    background: var(--green); color: #fff; border: 0; border-radius: 8px; cursor: pointer;
+  }
+  button.link { background: none; border: 0; color: var(--green); cursor: pointer; font-size: 14px; padding: 0; }
+  .error { color: var(--danger); font-size: 14px; margin-bottom: 12px; }
+  .empty { color: var(--muted); padding: 20px 0; }
+  .foot { margin-top: 32px; display: flex; justify-content: space-between; align-items: center; color: var(--muted); font-size: 13px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div id="login" hidden>
+    <header><h1>PY POS — Báo cáo</h1></header>
+    <p class="shop">Đăng nhập bằng tài khoản quán, đúng tài khoản đã kết nối trên máy bán hàng.</p>
+    <form id="loginForm">
+      <div class="error" id="loginError" hidden></div>
+      <label for="email">Email của quán</label>
+      <input id="email" type="email" autocomplete="username" required>
+      <label for="password">Mật khẩu</label>
+      <input id="password" type="password" autocomplete="current-password" required>
+      <button class="primary" type="submit">Xem báo cáo</button>
+    </form>
+  </div>
+
+  <div id="app" hidden>
+    <header>
+      <h1>Báo cáo</h1>
+      <span class="shop" id="shopName"></span>
+    </header>
+
+    <div class="chips" id="chips"></div>
+    <div id="status" class="empty">Đang tải…</div>
+
+    <div id="content" hidden>
+      <div class="cards">
+        <div class="card hero"><div class="label">Doanh thu</div><div class="value" id="revenue">—</div></div>
+        <div class="card"><div class="label">Số đơn</div><div class="value" id="orders">—</div></div>
+        <div class="card"><div class="label">Trung bình/đơn</div><div class="value" id="avg">—</div></div>
+        <div class="card"><div class="label">Đã hủy</div><div class="value" id="cancelled">—</div></div>
+      </div>
+
+      <section>
+        <h2>Doanh thu từng ngày</h2>
+        <div class="bars" id="chart"></div>
+      </section>
+
+      <section>
+        <h2>Món bán chạy</h2>
+        <table id="topTable"><tbody></tbody></table>
+        <div class="empty" id="topEmpty" hidden>Chưa có món nào trong kỳ này.</div>
+      </section>
+    </div>
+
+    <div class="foot">
+      <span id="signedInAs"></span>
+      <button class="link" id="signOut">Đăng xuất</button>
+    </div>
+  </div>
+
+</div>
+
+<script type="module">
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+
+// Khóa này công khai được — nó nằm sẵn trong mọi bản app khách cài về.
+// Toàn bộ an toàn nằm ở RLS phía server: đăng nhập tài khoản nào thì chỉ
+// đọc được đơn của quán đó.
+const SUPABASE_URL = 'https://vukseslzkxssihcmymcz.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ1a3Nlc2x6a3hzc2loY215bWN6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk0NzY0MzUsImV4cCI6MjEwNTA1MjQzNX0.CsZWfJ3zH1T15e1ufuoeUbSfu5UIJl3tT8DpKZSOLSQ';
+
+const db = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const $ = (id) => document.getElementById(id);
+const money = (n) => new Intl.NumberFormat('vi-VN').format(Math.round(n)) + 'đ';
+
+/// Rút gọn cho nhãn cột: 1.600.000đ vẽ trên đầu một cột rộng 22px thì tràn
+/// sang cột bên cạnh.
+const shortMoney = (n) => {
+  if (n >= 1000000) return (n / 1000000).toFixed(n >= 10000000 ? 0 : 1).replace('.0', '') + 'tr';
+  if (n >= 1000) return Math.round(n / 1000) + 'k';
+  return String(n);
+};
+
+// Các kỳ: mốc đầu tính vào, mốc cuối KHÔNG tính vào — khớp hệt
+// reportRangeFor trong app để hai bên không bao giờ ra hai con số.
+const dayStart = (offset) => {
+  const d = new Date();
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + offset);
+};
+const PERIODS = [
+  { key: 'today', label: 'Hôm nay', range: () => ({ from: dayStart(0), to: dayStart(1) }) },
+  { key: 'd7', label: '7 ngày', range: () => ({ from: dayStart(-6), to: dayStart(1) }) },
+  { key: 'd30', label: '30 ngày', range: () => ({ from: dayStart(-29), to: dayStart(1) }) },
+  {
+    key: 'month',
+    label: 'Tháng này',
+    range: () => {
+      const d = new Date();
+      return { from: new Date(d.getFullYear(), d.getMonth(), 1), to: new Date(d.getFullYear(), d.getMonth() + 1, 1) };
+    },
+  },
+];
+let current = PERIODS[1];
+
+/// Trạng thái nào được tính là doanh thu — chép đúng luật của app
+/// (OrderStatus.countsAsRevenue): đơn nháp và đơn mới gửi bếp chưa ngã ngũ
+/// nên không vào đâu cả, đơn hủy đếm riêng.
+const COUNTS_AS_REVENUE = (status) => status !== 'draft' && status !== 'placed' && status !== 'cancelled';
+
+function buildChips() {
+  $('chips').innerHTML = '';
+  for (const period of PERIODS) {
+    const button = document.createElement('button');
+    button.className = 'chip';
+    button.textContent = period.label;
+    button.setAttribute('aria-pressed', String(period === current));
+    button.onclick = () => { current = period; buildChips(); load(); };
+    $('chips').append(button);
+  }
+}
+
+async function fetchAll(table, build) {
+  // Lấy theo trang 1000 dòng: PostgREST mặc định chặn ở đó, quán bán vài
+  // tháng là vượt, mà vượt thì nó CẮT LẶNG LẼ chứ không báo lỗi — báo cáo
+  // thiếu tiền mà không ai biết.
+  const rows = [];
+  for (let page = 0; page < 50; page++) {
+    const { data, error } = await build(db.from(table)).range(page * 1000, page * 1000 + 999);
+    if (error) throw error;
+    rows.push(...data);
+    if (data.length < 1000) break;
+  }
+  return rows;
+}
+
+async function load() {
+  $('status').hidden = false;
+  $('status').textContent = 'Đang tải…';
+  $('content').hidden = true;
+
+  try {
+    const { from, to } = current.range();
+    const orders = await fetchAll('orders', (q) =>
+      q.select('id,status,total,refunded_amount,created_at')
+        .is('deleted_at', null)
+        .gte('created_at', from.toISOString())
+        .lt('created_at', to.toISOString()));
+
+    let revenue = 0, paid = 0, cancelled = 0;
+    const perDay = new Map();
+    const paidIds = [];
+    for (const order of orders) {
+      if (order.status === 'cancelled') { cancelled++; continue; }
+      if (!COUNTS_AS_REVENUE(order.status)) continue;
+      const net = order.total - (order.refunded_amount || 0);
+      revenue += net;
+      paid++;
+      paidIds.push(order.id);
+      const day = new Date(order.created_at);
+      const key = `${day.getFullYear()}-${day.getMonth()}-${day.getDate()}`;
+      perDay.set(key, (perDay.get(key) || 0) + net);
+    }
+
+    $('revenue').textContent = money(revenue);
+    $('orders').textContent = String(paid);
+    $('avg').textContent = paid ? money(Math.floor(revenue / paid)) : '—';
+    $('cancelled').textContent = String(cancelled);
+
+    drawChart(from, to, perDay);
+    await drawTopProducts(paidIds);
+
+    $('status').hidden = true;
+    $('content').hidden = false;
+  } catch (error) {
+    $('status').hidden = false;
+    $('status').textContent = 'Không tải được: ' + (error.message || error);
+  }
+}
+
+function drawChart(from, to, perDay) {
+  const chart = $('chart');
+  chart.innerHTML = '';
+  const days = [];
+  for (let d = new Date(from); d < to; d.setDate(d.getDate() + 1)) {
+    const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    days.push({ date: new Date(d), amount: perDay.get(key) || 0 });
+  }
+  const max = Math.max(1, ...days.map((d) => d.amount));
+  for (const day of days) {
+    const bar = document.createElement('div');
+    bar.className = 'bar';
+    // Ngày không bán vẫn vẽ cột rỗng: bỏ đi thì trục ngày nhảy cóc và
+    // nhìn tưởng bán đều — cùng lý do với biểu đồ trong app.
+    bar.innerHTML =
+      `<div class="amt">${day.amount ? shortMoney(day.amount) : ''}</div>` +
+      `<div class="fill" style="height:${(day.amount / max) * 100}%"></div>` +
+      `<div class="day">${day.date.getDate()}/${day.date.getMonth() + 1}</div>`;
+    chart.append(bar);
+  }
+}
+
+async function drawTopProducts(orderIds) {
+  const body = $('topTable').querySelector('tbody');
+  body.innerHTML = '';
+  $('topEmpty').hidden = true;
+  if (!orderIds.length) { $('topEmpty').hidden = false; return; }
+
+  // Chia lô id: nhét cả nghìn id vào một câu `in(...)` là URL dài quá mức
+  // server chịu được.
+  const totals = new Map();
+  for (let i = 0; i < orderIds.length; i += 200) {
+    const chunk = orderIds.slice(i, i + 200);
+    const items = await fetchAll('order_items', (q) =>
+      q.select('product_name,quantity,price,is_comp').is('deleted_at', null).in('order_id', chunk));
+    for (const item of items) {
+      // Món tặng vẫn đếm SỐ PHẦN nhưng không cộng tiền — đúng như luật
+      // món tặng của app: nguyên liệu mất thật, doanh thu thì không có.
+      const row = totals.get(item.product_name) || { quantity: 0, amount: 0 };
+      row.quantity += item.quantity;
+      if (!item.is_comp) row.amount += item.price * item.quantity;
+      totals.set(item.product_name, row);
+    }
+  }
+
+  const top = [...totals.entries()].sort((a, b) => b[1].quantity - a[1].quantity).slice(0, 10);
+  if (!top.length) { $('topEmpty').hidden = false; return; }
+  top.forEach(([name, row], index) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      `<td class="rank">${index + 1}</td><td>${escapeHtml(name)}</td>` +
+      `<td class="num">${row.quantity} phần • ${money(row.amount)}</td>`;
+    body.append(tr);
+  });
+}
+
+const escapeHtml = (s) => s.replace(/[&<>"']/g, (c) =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+async function showApp(session) {
+  $('login').hidden = true;
+  $('app').hidden = false;
+  $('signedInAs').textContent = session.user.email;
+  const { data } = await db.from('stores').select('name').limit(1);
+  $('shopName').textContent = data && data.length ? data[0].name : '';
+  buildChips();
+  load();
+}
+
+function showLogin() {
+  $('app').hidden = true;
+  $('login').hidden = false;
+}
+
+$('loginForm').onsubmit = async (event) => {
+  event.preventDefault();
+  $('loginError').hidden = true;
+  const { data, error } = await db.auth.signInWithPassword({
+    email: $('email').value.trim(),
+    password: $('password').value,
+  });
+  if (error) {
+    $('loginError').hidden = false;
+    $('loginError').textContent = 'Email hoặc mật khẩu không đúng';
+    return;
+  }
+  showApp(data.session);
+};
+
+$('signOut').onclick = async () => { await db.auth.signOut(); showLogin(); };
+
+const { data: { session } } = await db.auth.getSession();
+if (session) showApp(session); else showLogin();
+</script>
+</body>
+</html>
