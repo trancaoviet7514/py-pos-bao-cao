@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PY POS — Báo cáo</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%232E7D32'/><path fill='%23fff' fill-rule='evenodd' d='M12,25.4 H33.23 A14.53,14.53 0 0 1 33.23,54.46 H22.06 V74.58 H12 Z M22.06,33.22 H33.23 A6.71,6.71 0 0 1 33.23,46.63 H22.06 Z M52.23,25.4 H63.41 L70.11,39.93 L76.82,25.4 H87.99 L75.7,52.22 V74.58 H64.52 V52.22 Z'/></svg>">
 <style>
   /* Cùng màu xanh với app (seedColor #2E7D32) để chủ quán mở ra là nhận
      ra ngay đây là cùng một sản phẩm. */
@@ -33,6 +34,15 @@
   .shop { color: var(--muted); font-size: 14px; }
 
   .chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0; }
+  /* Ô chọn tiệm chỉ hiện khi tài khoản có nhiều hơn một tiệm — xem
+     renderStorePicker. Một tiệm thì thêm một ô chọn chỉ có một dòng là
+     bắt người ta đọc thừa. */
+  #storePicker { margin: 4px 0 0; }
+  #storePicker select {
+    width: 100%; padding: 10px 12px; border-radius: 10px;
+    border: 1px solid var(--line); background: var(--surface); color: inherit;
+    font-size: 15px; font-family: inherit;
+  }
   .chip {
     padding: 8px 14px; border: 1px solid var(--line); border-radius: 999px;
     background: var(--surface); color: var(--text); font-size: 14px; cursor: pointer;
@@ -97,6 +107,10 @@
       <h1>Báo cáo</h1>
       <span class="shop" id="shopName"></span>
     </header>
+    <div id="storePicker" hidden>
+      <label class="shop" for="storeSelect">Xem tiệm</label>
+      <select id="storeSelect"></select>
+    </div>
 
     <div class="chips" id="chips"></div>
     <div id="status" class="empty">Đang tải…</div>
@@ -172,6 +186,13 @@ const PERIODS = [
 ];
 let current = PERIODS[1];
 
+/// Tiệm đang xem. Tài khoản có thể có nhiều tiệm (server KHÔNG chặn
+/// chuyện đó — xem supabase/schema.sql), nên mọi truy vấn phải lọc theo
+/// store_id. Trước đây không lọc: hai tiệm là doanh thu cộng gộp vào một
+/// con số, mà nhìn trang thì không có dấu hiệu nào cho biết.
+let stores = [];
+let currentStoreId = null;
+
 /// Trạng thái nào được tính là doanh thu — chép đúng luật của app
 /// (OrderStatus.countsAsRevenue): đơn nháp và đơn mới gửi bếp chưa ngã ngũ
 /// nên không vào đâu cả, đơn hủy đếm riêng.
@@ -212,6 +233,7 @@ async function load() {
     const { from, to } = current.range();
     const orders = await fetchAll('orders', (q) =>
       q.select('id,status,total,refunded_amount,created_at')
+        .eq('store_id', currentStoreId)
         .is('deleted_at', null)
         .gte('created_at', from.toISOString())
         .lt('created_at', to.toISOString()));
@@ -277,6 +299,9 @@ async function drawTopProducts(orderIds) {
 
   // Chia lô id: nhét cả nghìn id vào một câu `in(...)` là URL dài quá mức
   // server chịu được.
+  //
+  // KHÔNG cần lọc store_id ở đây: orderIds đã là đơn của đúng tiệm đang
+  // xem, nên lọc theo order_id là đã khoanh đúng vùng.
   const totals = new Map();
   for (let i = 0; i < orderIds.length; i += 200) {
     const chunk = orderIds.slice(i, i + 200);
@@ -306,12 +331,57 @@ async function drawTopProducts(orderIds) {
 const escapeHtml = (s) => s.replace(/[&<>"']/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+/// Vẽ ô chọn tiệm, và CHỈ khi tài khoản có nhiều hơn một tiệm.
+///
+/// Một tiệm — trường hợp của gần như mọi quán — thì tên tiệm hiện ở
+/// header là đủ, thêm một ô chọn chỉ có một dòng là bắt đọc thừa.
+function renderStorePicker() {
+  const picker = $('storePicker');
+  if (stores.length < 2) { picker.hidden = true; return; }
+  picker.hidden = false;
+  const select = $('storeSelect');
+  select.innerHTML = '';
+  for (const store of stores) {
+    const option = document.createElement('option');
+    option.value = store.id;
+    option.textContent = store.name || '(chưa đặt tên)';
+    option.selected = store.id === currentStoreId;
+    select.append(option);
+  }
+  select.onchange = () => {
+    currentStoreId = select.value;
+    const store = stores.find((s) => s.id === currentStoreId);
+    $('shopName').textContent = store ? store.name : '';
+    load();
+  };
+}
+
 async function showApp(session) {
   $('login').hidden = true;
   $('app').hidden = false;
   $('signedInAs').textContent = session.user.email;
-  const { data } = await db.from('stores').select('name').limit(1);
-  $('shopName').textContent = data && data.length ? data[0].name : '';
+
+  // Sắp theo tên để lần nào mở cũng ra cùng thứ tự: không sắp thì
+  // PostgREST trả theo thứ tự nào là chuyện của nó, và "tiệm đầu tiên"
+  // hôm nay khác hôm qua.
+  const { data, error } = await db.from('stores').select('id,name').order('name');
+  stores = error ? [] : (data || []);
+
+  if (!stores.length) {
+    // Tài khoản đã đăng nhập được nhưng chưa có tiệm nào đẩy lên. Nói
+    // thẳng, đừng hiện 0đ — 0đ trông giống "hôm nay chưa bán được gì".
+    $('shopName').textContent = '';
+    $('storePicker').hidden = true;
+    $('status').hidden = false;
+    $('status').textContent = 'Tài khoản này chưa có tiệm nào gửi dữ liệu lên. '
+      + 'Trên máy bán hàng, vào Quản lý → Đồng bộ và bấm "Gửi ngay".';
+    $('content').hidden = true;
+    return;
+  }
+
+  currentStoreId = stores[0].id;
+  $('shopName').textContent = stores[0].name || '';
+  renderStorePicker();
   buildChips();
   load();
 }
