@@ -143,8 +143,22 @@
 
 </div>
 
+<!--
+  supabase-js KHÓA CỨNG phiên bản + SRI (08/10/2026), cùng cách với
+  admin/index.html và website/dang-ky.html. Trước đó nạp
+  `@supabase/supabase-js@2/+esm` — phiên bản trôi theo bản mới nhất, và CDN
+  bị chiếm là trang chạy mã lạ ngay trong phiên đăng nhập của chủ quán.
+  Giờ trình duyệt so mã băm: file trên CDN bị thay là KHÔNG chạy.
+
+  Nâng phiên bản: đổi số trong URL rồi tính lại mã băm:
+    curl -s <URL> | openssl dgst -sha384 -binary | openssl base64 -A
+-->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.3/dist/umd/supabase.js"
+        integrity="sha384-BWcjm9OdFth9TbhCxZPdm+gAOUMAzQy9nmTs12ioXdCcbVnJaPMn+fMUoQCLt60R"
+        crossorigin="anonymous"></script>
 <script type="module">
-import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+// Nạp bằng thẻ <script> có SRI ở trên — xem chú thích ở đó.
+const { createClient } = window.supabase;
 
 // Khóa này công khai được — nó nằm sẵn trong mọi bản app khách cài về.
 // Toàn bộ an toàn nằm ở RLS phía server: đăng nhập tài khoản nào thì chỉ
